@@ -6,21 +6,27 @@ CREATE TABLE players (
     name TEXT
     );
 
-
 CREATE TABLE matches (
     id SERIAL PRIMARY KEY,
-    player_a integer REFERENCES players(id),
-    player_b integer REFERENCES players(id),
     winner integer REFERENCES players(id),
-    CHECK (winner in (player_a, player_b))
+    loser integer REFERENCES players(id)
     );
 
+-- Create view that contains player_id, wins, loses and plays
 CREATE VIEW wins AS
-    select p.id, count(m.winner) as wins
-    from players p join matches m on p.id=m.winner
-    group by p.id;
+    select players.id, wins, loses, (wins + loses) as plays
+      from players
+      join (
+        select p.id, count(m.loser) as loses
+          from players p left join matches m on p.id=m.loser
+          group by p.id) as ls
+      on ls.id =players.id
+      join (
+        select p.id, count(m.winner) as wins
+          from players p left join matches m on p.id=m.winner
+          group by p.id) as wn
+      on wn.id=players.id;
 
-CREATE VIEW plays AS
-    select p.id, count(m.winner) as matches
-    from players p join matches m on (p.id=m.player_a or p.id=m.player_b)
-    group by p.id;
+--DROP VIEW wins;
+--DROP TABLE matches;
+--DROP TABLE players;

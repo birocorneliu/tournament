@@ -69,11 +69,10 @@ def playerStandings():
         matches: the number of matches the player has played
     """
     query = """
-        SELECT id, name, coalesce(wins, 0) as wins, coalesce(matches, 0)
+        SELECT id, name, wins, plays
           FROM players
-            LEFT JOIN wins USING (id)
-            LEFT JOIN plays USING (id)
-          ORDER BY wins DESC;
+          JOIN wins USING (id)
+          ORDER BY (wins-loses) DESC, wins DESC;
     """
     db = connect()
     cursor = db.cursor()
@@ -83,23 +82,59 @@ def playerStandings():
     return response
 
 
-
-def reportMatch(winner, loser):
+def reportMatch(winner, loser, draw=False):
     """Records the outcome of a single match between two players.
 
+    If there is a draw, every player will recive in the same time
+    a win and a loss. This will basically give him half a point.
+
     Args:
-      winner:  the id number of the player who won
-      loser:  the id number of the player who lost
+      winner: the id number of the player who won
+      loser: the id number of the player who lost
+      draw: true or false if there is a draw or not
     """
     query = """
-        insert into matches (player_a, player_b, winner)
-            values (%s, %s, %s);
+        insert into matches (winner, loser)
+            values (%s, %s);
     """
     db = connect()
     cursor = db.cursor()
-    cursor.execute(query, (winner, loser, winner))
+    if not draw:
+        cursor.execute(query, (winner, loser))
+    else:
+        cursor.execute(query, (winner, loser))
+        cursor.execute(query, (loser, winner))
     db.commit()
     db.close()
+
+def verifyPlayers(player1, player2):
+    """Verifies if players played or not before
+
+    Args:
+        player1: a tuple of (id, name, wins, matches)
+        player2: a tuple of (id, name, wins, matches)
+    Returns:
+      A tuple which contains (id1, name1, id2, name2) if players haven't played
+      else it returns None
+        id1: the first player's unique id
+        name1: the first player's name
+        id2: the second player's unique id
+        name2: the second player's name
+    """
+    id1 = player1[0]
+    id2 = player2[0]
+    query = """
+        select * from matches
+            where (winner={0} and loser={1})
+               or (winner={1} and loser={0});
+    """.format(id1, id2)
+    db = connect()
+    cursor = db.cursor()
+    cursor.execute(query)
+    response = cursor.fetchone()
+    db.close()
+    if not response:
+        return (player1[0], player1[1], player2[0], player2[1])
 
 
 def swissPairings():
@@ -117,22 +152,25 @@ def swissPairings():
         id2: the second player's unique id
         name2: the second player's name
     """
-    standings = playerStandings()
     pairings = []
-    for index in xrange(0, len(standings), 2):
-        if len(standings) == index:
-            pairing = (
-                standings[index][0],
-                standings[index][1],
-                standings[index][0],
-                standings[index][1]
-            )
-        else:
-            pairing = (
-                standings[index][0],
-                standings[index][1],
-                standings[index+1][0],
-                standings[index+1][1]
-            )
-        pairings.append(pairing)
+
+    standings = playerStandings()
+    if len(standings) % 2 == 1:
+        for standing in reversed(standings):
+            pairing = verifyPlayers(standing, standing)
+            if pairing:
+                pairings.append(pairing)
+                standings.remove(standing)
+                break
+    iterations = len(standings) / 2
+    for _ in range(iterations):
+        standing1 = standings[0]
+        standings.remove(standing1)
+        for standing in standings:
+            pairing = verifyPlayers(standing1, standing)
+            if pairing:
+                pairings.append(pairing)
+                standings.remove(standing)
+                break
+
     return pairings
